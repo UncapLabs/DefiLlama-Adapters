@@ -1,6 +1,5 @@
 const ADDRESSES = require('../helper/coreAssets.json')
-const { call } = require('../helper/chain/starknet');
-const abi = require('./abi.json');
+const { sumTokens } = require('../helper/chain/starknet');
 
 const WBTC_CONTRACT = ADDRESSES.starknet.WBTC;
 const WRAPPED_WBTC_CONTRACT = '0x75d9e518f46a9ca0404fb0a7d386ce056dadf57fd9a0e8659772cb517be4a18'; // The collateral is a wrapped WBTC, for decimals reasons
@@ -19,52 +18,19 @@ const SOLVBTC = {
   stabilityPool: '0x154d14c879ce7dfe559628ed1abff2df38974efd27abf10d9236d05c6aa4741',
 };
 
-/**
- * Fetches the total balance of a collateral token across multiple pool contracts.
- * @param {string} collateralToken - The contract address of the collateral token.
- * @param {string[]} pools - Array of pool contract addresses to query.
- * @returns {Promise<string>} The sum of balances across all pools as a string.
- */
-async function getCollateralBalance(collateralToken, pools) {
-  const balances = await Promise.all(
-    pools.map(pool => call({
-      abi: abi[0],
-      target: collateralToken,
-      params: [pool],
-    }))
-  );
-  return balances.reduce((sum, bal) => sum + BigInt(bal), 0n).toString();
-}
-
-/**
- * Calculates the total value locked (TVL) by summing collateral balances across all supported tokens.
- * @param {object} api - The DefiLlama API object for adding token balances.
- */
 async function tvl(api) {
-  const wrapperBalance = await call({
-    abi: abi[0],
-    target: WBTC_CONTRACT,
-    params: [WRAPPED_WBTC_CONTRACT],
-  });
-
-  const tbtcBalance = await getCollateralBalance(
-    TBTC.collateral,
-    [TBTC.activePool, TBTC.collSurplusPool, TBTC.stabilityPool]
-  );
-
-  const solvbtcBalance = await getCollateralBalance(
-    SOLVBTC.collateral,
-    [SOLVBTC.activePool, SOLVBTC.collSurplusPool, SOLVBTC.stabilityPool]
-  );
-
-  api.addTokens(
-    [WBTC_CONTRACT, TBTC.collateral, SOLVBTC.collateral],
-    [wrapperBalance, tbtcBalance, solvbtcBalance]
-  );
+  const tokensAndOwners = [[WBTC_CONTRACT, WRAPPED_WBTC_CONTRACT]]
+  const pools = [TBTC, SOLVBTC]
+  for (const { collateral, activePool, collSurplusPool, stabilityPool } of pools) {
+    tokensAndOwners.push([collateral, activePool])
+    tokensAndOwners.push([collateral, collSurplusPool])
+    tokensAndOwners.push([collateral, stabilityPool])
+  }
+  return sumTokens({ api, tokensAndOwners });
 }
 
 module.exports = {
-  methodology: 'counts the collateral tokens (TBTC, SOLVBTC) in the Active Pool, Collateral Surplus Pool, and Stability Pool contracts. For WBTC, uses the WBTC balance held by the WWBTC wrapper contract.',
+  methodology: 'Count the value of collaterals in the active, collateral surplus, and stability pools.',
   start: 2762980,
   starknet: {
     tvl,
